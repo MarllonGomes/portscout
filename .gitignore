@@ -1,3 +1,5 @@
-portscout
+# só o binário na raiz do repo, ancorado: sem a barra isto casaria também com
+# o diretório cmd/portscout/ e o pacote principal sumiria do repositório.
+/portscout
 /dist/
 *.tmp
