@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -138,5 +139,76 @@ func TestRemoteScriptHasRootlessFallback(t *testing.T) {
 	}
 	if !strings.Contains(RemoteScript, "ss -ltnpH") {
 		t.Error("remote script must list listening sockets")
+	}
+}
+
+// TestRemoteScriptRunsInAShell is the regression guard for a bug that unit
+// tests with canned output could never catch: the script is a single line, so
+// an unquoted '#' marker commented out every command after it and the scan
+// silently found nothing. Running it through a real sh is the only way to see
+// that. It shells out but touches no network and no ssh.
+func TestRemoteScriptRunsInAShell(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs a shell")
+	}
+	out, err := exec.Command("sh", "-c", RemoteScript).Output()
+	if err != nil {
+		t.Fatalf("the script must never fail: %v", err)
+	}
+	text := string(out)
+	if !strings.Contains(text, markerSS) {
+		t.Errorf("ss marker missing from output:\n%s", text)
+	}
+	if !strings.Contains(text, markerDocker) {
+		t.Errorf("docker marker missing from output:\n%s", text)
+	}
+}
+
+// On a remote where you are not root, ss cannot read the process behind another
+// user's socket, so the name-based noise filter sees "" and lets sshd, postfix
+// and resolved through. Real scans are dominated by those, so unlabelled
+// well-known and ephemeral ports must be filtered by number too.
+func TestDiscoverFiltersUnlabelledSystemAndEphemeralPorts(t *testing.T) {
+	out := []byte(markerSS + `
+LISTEN 0 128 0.0.0.0:22 0.0.0.0:*
+LISTEN 0 100 127.0.0.1:25 0.0.0.0:*
+LISTEN 0 4096 127.0.0.54:53 0.0.0.0:*
+LISTEN 0 4096 100.113.155.105:53592 0.0.0.0:*
+LISTEN 0 511 127.0.0.1:3100 0.0.0.0:* users:(("next-server",pid=1,fd=22))
+` + markerDocker + "\n")
+
+	ports, err := Discover(context.Background(), fakeRunner{out: out}, "dev", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != 1 {
+		t.Fatalf("only the labelled dev server should survive, got %+v", ports)
+	}
+	if ports[0].Port != 3100 {
+		t.Errorf("expected port 3100, got %d", ports[0].Port)
+	}
+}
+
+func TestDiscoverIncludeAllKeepsUnlabelledPorts(t *testing.T) {
+	out := []byte(markerSS + "\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:*\n" + markerDocker + "\n")
+	ports, err := Discover(context.Background(), fakeRunner{out: out}, "dev", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != 1 {
+		t.Fatalf("--all must keep unlabelled ports, got %+v", ports)
+	}
+}
+
+// A labelled port must survive even if its number looks ephemeral: a dev server
+// on a high port is exactly what the user wants to reach.
+func TestDiscoverKeepsLabelledHighPorts(t *testing.T) {
+	out := []byte(markerSS + "\nLISTEN 0 128 127.0.0.1:41234 0.0.0.0:* users:((\"vite\",pid=9,fd=3))\n" + markerDocker + "\n")
+	ports, err := Discover(context.Background(), fakeRunner{out: out}, "dev", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ports) != 1 {
+		t.Fatalf("a labelled high port must survive, got %+v", ports)
 	}
 }

@@ -9,9 +9,12 @@ import (
 	"strings"
 )
 
+// The markers must not start with '#': the script is a single line, so a '#'
+// would comment out everything after it and the scan would silently return
+// nothing.
 const (
-	markerSS     = "#portscout:ss"
-	markerDocker = "#portscout:docker"
+	markerSS     = "portscout-section:ss"
+	markerDocker = "portscout-section:docker"
 )
 
 // RemoteScript runs on the remote host. It is deliberately POSIX sh and never
@@ -39,6 +42,19 @@ var noise = map[string]bool{
 	"postfix":          true,
 	"master":           true,
 }
+
+// noisePorts are well-known service ports that are never worth forwarding.
+// They are filtered by number because ss running as an unprivileged user cannot
+// read the process behind another user's socket, which is exactly the case for
+// every system daemon on a remote box.
+var noisePorts = map[int]bool{
+	22: true, 25: true, 53: true, 111: true, 123: true,
+	631: true, 5353: true, 5355: true,
+}
+
+// firstEphemeral is the bottom of Linux's default dynamic port range. An
+// unlabelled socket up there is a transient client port, not a service.
+const firstEphemeral = 32768
 
 // Port is one remote port, after collapsing dual-stack binds and attaching the
 // container name when the socket belongs to one.
@@ -102,13 +118,26 @@ func Discover(ctx context.Context, r Runner, host string, includeAll bool) ([]Po
 
 	ports := make([]Port, 0, len(merged))
 	for _, p := range merged {
-		if !includeAll && p.Container == "" && noise[p.Process] {
+		if !includeAll && p.isNoise() {
 			continue
 		}
 		ports = append(ports, *p)
 	}
 	sort.Slice(ports, func(i, j int) bool { return ports[i].Port < ports[j].Port })
 	return ports, nil
+}
+
+// isNoise reports whether a port is infrastructure the user never wants to
+// forward. A port with a label is always kept: a dev server on a high port is
+// precisely what the user is looking for.
+func (p Port) isNoise() bool {
+	if p.Container != "" {
+		return false
+	}
+	if p.Process != "" {
+		return noise[p.Process]
+	}
+	return noisePorts[p.Port] || p.Port >= firstEphemeral
 }
 
 // split cuts the combined stdout into its two sections.

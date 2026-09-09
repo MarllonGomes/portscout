@@ -2,6 +2,7 @@
 package tunnel9
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -123,10 +124,19 @@ func (c *Config) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	out, err := yaml.Marshal(c.doc)
-	if err != nil {
+	// yaml.Marshal defaults to a four-space indent, which would reformat every
+	// line of a file the user also edits by hand. Match tunnel9's two spaces so
+	// a scan shows up as the entries it changed and nothing else.
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(c.doc); err != nil {
 		return err
 	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	out := buf.Bytes()
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".portscout-*")
 	if err != nil {
 		return err
