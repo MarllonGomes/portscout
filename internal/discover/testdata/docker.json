@@ -1,0 +1,5 @@
+{"ID":"a1","Image":"postgres:18.3-alpine","Names":"couple-community-postgres-1","Ports":"127.0.0.1:3102->5432/tcp"}
+{"ID":"b2","Image":"redis:8.6.1-alpine","Names":"couple-community-redis-1","Ports":"127.0.0.1:3103->6379/tcp"}
+{"ID":"c3","Image":"axllent/mailpit:v1.31.0","Names":"couple-community-mailpit-1","Ports":"127.0.0.1:3104->1025/tcp, 127.0.0.1:3105->8025/tcp"}
+{"ID":"d4","Image":"nginx","Names":"web","Ports":"0.0.0.0:8080->80/tcp, :::8080->80/tcp"}
+{"ID":"e5","Image":"busybox","Names":"idle","Ports":""}
