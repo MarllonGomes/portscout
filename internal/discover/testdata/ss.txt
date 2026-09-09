@@ -1,0 +1,8 @@
+LISTEN 0      128                0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=1,fd=3))
+LISTEN 0      511              127.0.0.1:3100       0.0.0.0:*    users:(("next-server (v1",pid=260486,fd=22))
+LISTEN 0      511              127.0.0.1:3101       0.0.0.0:*    users:(("MainThread",pid=260639,fd=28))
+LISTEN 0      4096             127.0.0.1:3102       0.0.0.0:*    users:(("rootlesskit",pid=244552,fd=24))
+LISTEN 0      4096             127.0.0.1:3105       0.0.0.0:*    users:(("rootlesskit",pid=244552,fd=23))
+LISTEN 0      5                  0.0.0.0:80         0.0.0.0:*    users:(("socat",pid=266226,fd=5))
+LISTEN 0      128                   [::]:22            [::]:*
+LISTEN 0      4096             127.0.0.53%lo:53     0.0.0.0:*    users:(("systemd-resolve",pid=900,fd=14))
