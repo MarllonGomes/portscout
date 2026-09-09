@@ -1,0 +1,12 @@
+version: 2
+builds:
+  - main: ./cmd/portscout
+    binary: portscout
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: ['-s -w']
+archives:
+  - formats: [tar.gz]
+changelog:
+  use: github
