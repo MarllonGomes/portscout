@@ -43,6 +43,16 @@ Filtragem de ruído, com `--all` para desligar:
 Uma porta **com** rótulo nunca é filtrada por número: um dev server numa porta alta é
 exatamente o que você quer alcançar.
 
+## Os nomes das entradas
+
+O `ss` só mostra os 15 primeiros caracteres do nome de um processo, que é o limite do
+kernel — `next-server (v16.3.4)` chega como `next-server (v1`. O nome inteiro é lido do
+`/proc/<pid>/cmdline`, e só é usado quando de fato continua o nome truncado.
+
+Um container que publica mais de uma porta repete o mesmo nome em cada uma. Só os nomes
+que se repetem ganham a porta remota como sufixo — `mailpit-1 (3104)` e `mailpit-1 (3105)`
+— para não haver duas linhas idênticas na TUI.
+
 ## Regras de convivência com o seu YAML
 
 - Só mexe em entradas com `tag: auto` (mude com `--tag`). O resto do arquivo é intocável.

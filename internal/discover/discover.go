@@ -13,8 +13,9 @@ import (
 // would comment out everything after it and the scan would silently return
 // nothing.
 const (
-	markerSS     = "portscout-section:ss"
-	markerDocker = "portscout-section:docker"
+	markerSS      = "portscout-section:ss"
+	markerDocker  = "portscout-section:docker"
+	markerCmdline = "portscout-section:cmdline"
 )
 
 // RemoteScript runs on the remote host. It is deliberately POSIX sh and never
@@ -26,7 +27,13 @@ const RemoteScript = "echo " + markerSS + "; " +
 	"echo " + markerDocker + "; " +
 	"{ docker ps --format '{{json .}}' 2>/dev/null " +
 	"|| DOCKER_HOST=\"unix://$HOME/.docker/run/docker.sock\" docker ps --format '{{json .}}' 2>/dev/null " +
-	"|| true; }"
+	"|| true; }; " +
+	"echo " + markerCmdline + "; " +
+	// ss only ever reports the first 15 characters of a process name; the full
+	// one has to come from /proc. sed, not grep -oP, because -P is a GNU
+	// extension the remote sh may not have.
+	"ss -ltnpH 2>/dev/null | sed -n 's/.*pid=\\([0-9]*\\).*/\\1/p' | sort -u | " +
+	"while read p; do printf '%s\\t%s\\n' \"$p\" \"$(tr '\\0' ' ' < /proc/$p/cmdline 2>/dev/null)\"; done 2>/dev/null || true"
 
 // noise is the set of processes whose ports are never interesting to forward.
 var noise = map[string]bool{
@@ -103,14 +110,19 @@ func Discover(ctx context.Context, r Runner, host string, includeAll bool) ([]Po
 	if err != nil {
 		return nil, err
 	}
-	ssPart, dockerPart := split(string(out))
+	ssPart, dockerPart, cmdlinePart := split(string(out))
 	containers := ParseDocker([]byte(dockerPart))
+	cmdlines := ParseCmdlines([]byte(cmdlinePart))
 
 	merged := map[int]*Port{}
 	for _, s := range ParseSS([]byte(ssPart)) {
 		p, ok := merged[s.Port]
 		if !ok {
-			p = &Port{Port: s.Port, Process: s.Process, Container: containers[s.Port]}
+			p = &Port{
+				Port:      s.Port,
+				Process:   untruncateProcess(s.Process, cmdlines[s.PID]),
+				Container: containers[s.Port],
+			}
 			merged[s.Port] = p
 		}
 		p.Binds = append(p.Binds, s.Bind)
@@ -140,15 +152,21 @@ func (p Port) isNoise() bool {
 	return noisePorts[p.Port] || p.Port >= firstEphemeral
 }
 
-// split cuts the combined stdout into its two sections.
-func split(out string) (ssPart, dockerPart string) {
-	i := strings.Index(out, markerSS)
-	if i >= 0 {
+// split cuts the combined stdout into its sections. A missing section yields an
+// empty string: an older remote script, or one whose docker call produced
+// nothing, must still give a usable scan.
+func split(out string) (ssPart, dockerPart, cmdlinePart string) {
+	if i := strings.Index(out, markerSS); i >= 0 {
 		out = out[i+len(markerSS):]
 	}
 	j := strings.Index(out, markerDocker)
 	if j < 0 {
-		return out, ""
+		return out, "", ""
 	}
-	return out[:j], out[j+len(markerDocker):]
+	ssPart, rest := out[:j], out[j+len(markerDocker):]
+	k := strings.Index(rest, markerCmdline)
+	if k < 0 {
+		return ssPart, rest, ""
+	}
+	return ssPart, rest[:k], rest[k+len(markerCmdline):]
 }

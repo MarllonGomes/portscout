@@ -13,14 +13,14 @@ func TestParseSS(t *testing.T) {
 	got := ParseSS(out)
 
 	want := []Socket{
-		{Bind: "0.0.0.0", Port: 22, Process: "sshd"},
-		{Bind: "127.0.0.1", Port: 3100, Process: "next-server (v1"},
-		{Bind: "127.0.0.1", Port: 3101, Process: "MainThread"},
-		{Bind: "127.0.0.1", Port: 3102, Process: "rootlesskit"},
-		{Bind: "127.0.0.1", Port: 3105, Process: "rootlesskit"},
-		{Bind: "0.0.0.0", Port: 80, Process: "socat"},
-		{Bind: "::", Port: 22, Process: ""},
-		{Bind: "127.0.0.53%lo", Port: 53, Process: "systemd-resolve"},
+		{Bind: "0.0.0.0", Port: 22, Process: "sshd", PID: 1},
+		{Bind: "127.0.0.1", Port: 3100, Process: "next-server (v1", PID: 260486},
+		{Bind: "127.0.0.1", Port: 3101, Process: "MainThread", PID: 260639},
+		{Bind: "127.0.0.1", Port: 3102, Process: "rootlesskit", PID: 244552},
+		{Bind: "127.0.0.1", Port: 3105, Process: "rootlesskit", PID: 244552},
+		{Bind: "0.0.0.0", Port: 80, Process: "socat", PID: 266226},
+		{Bind: "::", Port: 22, Process: "", PID: 0},
+		{Bind: "127.0.0.53%lo", Port: 53, Process: "systemd-resolve", PID: 900},
 	}
 
 	if len(got) != len(want) {

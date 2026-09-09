@@ -113,8 +113,9 @@ func once(o options, host, command string, all, prune bool, tag string) int {
 	}
 
 	if command == "list" {
+		names := plan.Aliases(ports)
 		for _, p := range ports {
-			fmt.Fprintf(o.stdout, "  %-6d %s\n", p.Port, p.Label())
+			fmt.Fprintf(o.stdout, "  %-6d %s\n", p.Port, names[p.Port])
 		}
 		return 0
 	}

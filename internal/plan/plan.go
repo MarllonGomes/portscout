@@ -38,9 +38,11 @@ func Build(ports []discover.Port, taken map[int]bool, free func(int) bool) []Ass
 		used[p] = true
 	}
 
+	names := Aliases(ports)
+
 	out := make([]Assignment, 0, len(ports))
 	for _, p := range ports {
-		a := Assignment{RemotePort: p.Port, LocalPort: p.Port, Alias: alias(p)}
+		a := Assignment{RemotePort: p.Port, LocalPort: p.Port, Alias: names[p.Port]}
 		if used[p.Port] || !free(p.Port) {
 			a.LocalPort = nextFree(p.Port, used, free)
 			a.Remapped = true
@@ -63,6 +65,29 @@ func nextFree(from int, used map[int]bool, free func(int) bool) int {
 		}
 	}
 	return 0
+}
+
+// Aliases resolves the display name of every discovered port. It is the single
+// source of truth for naming: `list` has to print exactly what `scan` would
+// write, or the user picks a row in tunnel9 that they never saw in the listing.
+//
+// A container that publishes more than one port reports the same name for each,
+// which would put identical rows in the tunnel9 list. Only the names that
+// actually repeat get the port suffix, so the common case stays clean.
+func Aliases(ports []discover.Port) map[int]string {
+	count := map[string]int{}
+	for _, p := range ports {
+		count[alias(p)]++
+	}
+	names := make(map[int]string, len(ports))
+	for _, p := range ports {
+		name := alias(p)
+		if count[name] > 1 {
+			name = fmt.Sprintf("%s (%d)", name, p.Port)
+		}
+		names[p.Port] = name
+	}
+	return names
 }
 
 func alias(p discover.Port) string {
