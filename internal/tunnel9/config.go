@@ -11,11 +11,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// The key names tunnel9's loader actually reads. Its README documents "host"
+// and "alias", but the code has used these since its first commit; an entry
+// written with the README's names loads with an empty host, so tunnel9 has
+// nowhere to connect and shows no name in the TUI.
+const (
+	keyHost  = "remote_host"
+	keyAlias = "name"
+
+	legacyKeyHost  = "host"
+	legacyKeyAlias = "alias"
+)
+
+// entryHost reads the SSH destination, accepting the legacy key so a file
+// written by an older portscout still round-trips.
+func entryHost(n *yaml.Node) string {
+	if v := mapGet(n, keyHost); v != "" {
+		return v
+	}
+	return mapGet(n, legacyKeyHost)
+}
+
+func entryAlias(n *yaml.Node) string {
+	if v := mapGet(n, keyAlias); v != "" {
+		return v
+	}
+	return mapGet(n, legacyKeyAlias)
+}
+
 // Entry is one tunnel9 tunnel.
 type Entry struct {
 	Host       string
 	Alias      string
-	User       string
 	LocalPort  int
 	RemotePort int
 	Tag        string
@@ -107,9 +134,8 @@ func (c *Config) Entries() []Entry {
 			continue
 		}
 		out = append(out, Entry{
-			Host:       mapGet(n, "host"),
-			Alias:      mapGet(n, "alias"),
-			User:       mapGet(n, "user"),
+			Host:       entryHost(n),
+			Alias:      entryAlias(n),
 			LocalPort:  mapGetInt(n, "local_port"),
 			RemotePort: mapGetInt(n, "remote_port"),
 			Tag:        mapGet(n, "tag"),

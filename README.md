@@ -73,6 +73,15 @@ go install github.com/MarllonGomes/portscout/cmd/portscout@latest
 
 Ou baixe o binário da página de releases.
 
+O portscout só edita o YAML — quem abre o túnel é o
+[tunnel9](https://github.com/sio2boss/tunnel9), então ele precisa estar instalado:
+
+```sh
+brew install sio2boss/tap/tunnel9
+# ou
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sio2boss/tunnel9/main/tools/install.sh)"
+```
+
 ## Desenvolvimento
 
 ```sh

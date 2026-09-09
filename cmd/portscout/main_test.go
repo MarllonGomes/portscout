@@ -189,7 +189,7 @@ func TestRunKeepsTwoSpaceIndent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(written), "\n  - host:") {
+	if !strings.Contains(string(written), "\n  - remote_host:") {
 		t.Errorf("expected a two-space list indent, got:\n%s", written)
 	}
 }

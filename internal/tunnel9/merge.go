@@ -47,8 +47,13 @@ func (c *Config) Merge(host string, assignments []plan.Assignment, tag string, p
 	for _, a := range assignments {
 		seen[a.RemotePort] = true
 		if node := c.findManaged(host, a.RemotePort, tag); node != nil {
-			if mapGet(node, "alias") != a.Alias {
-				mapSet(node, "alias", a.Alias)
+			// An entry written by an older portscout carries the key names from
+			// tunnel9's README instead of the ones its loader actually reads.
+			// Rename them in place: the position in the file, the comments and
+			// the local_port the user edited all survive.
+			migrated := migrateLegacyKeys(node)
+			if mapGet(node, keyAlias) != a.Alias || migrated {
+				mapSet(node, keyAlias, a.Alias)
 				changes = append(changes, Change{Updated, c.entryOf(node)})
 			}
 			continue
@@ -84,15 +89,23 @@ func (c *Config) findManaged(host string, remotePort int, tag string) *yaml.Node
 
 func isManaged(node *yaml.Node, host, tag string) bool {
 	return node.Kind == yaml.MappingNode &&
-		mapGet(node, "host") == host &&
+		entryHost(node) == host &&
 		mapGet(node, "tag") == tag
+}
+
+// migrateLegacyKeys rewrites the pre-fix key names on one entry and reports
+// whether it changed anything.
+func migrateLegacyKeys(node *yaml.Node) bool {
+	// Both renames must run: || would short-circuit past the second one.
+	renamedHost := mapRenameKey(node, legacyKeyHost, keyHost)
+	renamedAlias := mapRenameKey(node, legacyKeyAlias, keyAlias)
+	return renamedHost || renamedAlias
 }
 
 func (c *Config) entryOf(node *yaml.Node) Entry {
 	return Entry{
-		Host:       mapGet(node, "host"),
-		Alias:      mapGet(node, "alias"),
-		User:       mapGet(node, "user"),
+		Host:       entryHost(node),
+		Alias:      entryAlias(node),
 		LocalPort:  mapGetInt(node, "local_port"),
 		RemotePort: mapGetInt(node, "remote_port"),
 		Tag:        mapGet(node, "tag"),
@@ -101,12 +114,31 @@ func (c *Config) entryOf(node *yaml.Node) Entry {
 
 func newEntryNode(host string, a plan.Assignment, tag string) *yaml.Node {
 	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	mapSet(node, "host", host)
-	mapSet(node, "alias", a.Alias)
+	mapSet(node, keyHost, host)
+	mapSet(node, keyAlias, a.Alias)
 	mapSetInt(node, "local_port", a.LocalPort)
 	mapSetInt(node, "remote_port", a.RemotePort)
 	mapSet(node, "tag", tag)
 	return node
+}
+
+// mapRenameKey renames a key, keeping its position and value. It is a no-op if
+// the old key is absent or the new one is already there.
+func mapRenameKey(n *yaml.Node, old, new string) bool {
+	var found *yaml.Node
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		switch n.Content[i].Value {
+		case new:
+			return false
+		case old:
+			found = n.Content[i]
+		}
+	}
+	if found == nil {
+		return false
+	}
+	found.Value = new
+	return true
 }
 
 func mapSet(n *yaml.Node, key, value string) {
