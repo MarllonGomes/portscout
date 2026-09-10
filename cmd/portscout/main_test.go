@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeRunner struct{ out string }
@@ -44,17 +45,14 @@ func TestRunListPrintsPorts(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnknownCommand(t *testing.T) {
-	var out bytes.Buffer
-	if code := run([]string{"frobnicate"}, options{stdout: &out, stderr: &out}); code == 0 {
-		t.Fatal("unknown command must exit non-zero")
-	}
-}
-
 func TestRunRequiresHost(t *testing.T) {
-	var out bytes.Buffer
-	if code := run([]string{"list"}, options{stdout: &out, stderr: &out}); code == 0 {
-		t.Fatal("missing host must exit non-zero")
+	for _, args := range [][]string{{}, {"list"}, {"up"}, {"--all"}} {
+		var out bytes.Buffer
+		var got dashConfig
+		code := run(args, options{stdout: &out, stderr: &out, runDash: captureDash(&got)})
+		if code == 0 {
+			t.Errorf("%v: missing host must exit non-zero", args)
+		}
 	}
 }
 
@@ -113,5 +111,84 @@ func TestRunReportsNoPorts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "nenhuma porta") {
 		t.Errorf("expected a friendly empty message:\n%s", out.String())
+	}
+}
+
+// captureDash replaces the whole dashboard so dispatch and flag parsing can be
+// asserted without opening ssh or a terminal.
+func captureDash(got *dashConfig) func(dashConfig) int {
+	return func(cfg dashConfig) int {
+		*got = cfg
+		return 0
+	}
+}
+
+// `portscout dev` has to work: the dashboard is the point, so the host alone is
+// the whole command line.
+func TestRunTreatsAnUnknownFirstWordAsTheHost(t *testing.T) {
+	var got dashConfig
+	var out bytes.Buffer
+
+	if code := run([]string{"dev"}, options{stdout: &out, stderr: &out, runDash: captureDash(&got)}); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if got.host != "dev" {
+		t.Errorf("host = %q, want dev", got.host)
+	}
+	if !got.autoStart {
+		t.Error("remembered tunnels should come up by default")
+	}
+}
+
+func TestRunAcceptsFlagsAroundTheHostWithoutACommand(t *testing.T) {
+	for _, args := range [][]string{
+		{"dev", "--all"},
+		{"--all", "dev"},
+		{"dev", "--every=3s", "--no-autostart"},
+	} {
+		var got dashConfig
+		var out bytes.Buffer
+		if code := run(args, options{stdout: &out, stderr: &out, runDash: captureDash(&got)}); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, out.String())
+		}
+		if got.host != "dev" {
+			t.Errorf("%v: host = %q", args, got.host)
+		}
+	}
+}
+
+func TestRunPassesFlagsThroughToTheDashboard(t *testing.T) {
+	var got dashConfig
+	var out bytes.Buffer
+	code := run([]string{"dev", "--all", "--every", "3s", "--no-autostart", "--state=/tmp/x.json"},
+		options{stdout: &out, stderr: &out, runDash: captureDash(&got)})
+
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if !got.showAll || got.interval != 3*time.Second || got.autoStart || got.statePath != "/tmp/x.json" {
+		t.Errorf("cfg = %+v", got)
+	}
+}
+
+// A host that happens to be called "list" is still reachable.
+func TestHostNamedLikeACommandNeedsTheExplicitVerb(t *testing.T) {
+	var got dashConfig
+	var out bytes.Buffer
+	if code := run([]string{"up", "list"}, options{stdout: &out, stderr: &out, runDash: captureDash(&got)}); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if got.host != "list" {
+		t.Errorf("host = %q, want list", got.host)
+	}
+}
+
+func TestHelpExitsZero(t *testing.T) {
+	var out bytes.Buffer
+	if code := run([]string{"--help"}, options{stdout: &out, stderr: &out}); code != 0 {
+		t.Errorf("--help exited %d; scripts notice that", code)
+	}
+	if !strings.Contains(out.String(), "portscout") {
+		t.Errorf("expected usage:\n%s", out.String())
 	}
 }
