@@ -1,5 +1,5 @@
-// Command portscout discovers listening ports on a remote host and writes them
-// into the tunnel9 config. It never opens a tunnel itself.
+// Command portscout discovers listening ports on a remote host and forwards the
+// ones you pick, from a terminal dashboard.
 package main
 
 import (
@@ -8,20 +8,17 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/MarllonGomes/portscout/internal/discover"
 	"github.com/MarllonGomes/portscout/internal/plan"
-	"github.com/MarllonGomes/portscout/internal/tunnel9"
 )
 
 // options are the seams the tests replace; production fills them in main.
 type options struct {
-	runner     discover.Runner
-	configPath string
-	stdout     io.Writer
-	stderr     io.Writer
-	portFree   func(int) bool
+	runner   discover.Runner
+	stdout   io.Writer
+	stderr   io.Writer
+	portFree func(int) bool
 }
 
 func main() {
@@ -42,7 +39,7 @@ func run(args []string, o options) int {
 
 	command := args[0]
 	switch command {
-	case "list", "scan", "watch":
+	case "list":
 	default:
 		fmt.Fprintf(o.stderr, "comando desconhecido: %s\n\n%s\n", command, usage)
 		return 2
@@ -51,12 +48,8 @@ func run(args []string, o options) int {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(o.stderr)
 	all := fs.Bool("all", false, "não filtrar portas de sistema")
-	prune := fs.Bool("prune", false, "remover entradas gerenciadas cuja porta sumiu")
-	tag := fs.String("tag", "auto", "tag das entradas gerenciadas")
-	configPath := fs.String("config", "", "caminho do YAML do tunnel9")
-	every := fs.Duration("every", 15*time.Second, "intervalo do watch")
 
-	// flag stops at the first positional, so "scan dev --all" would drop --all.
+	// flag stops at the first positional, so "list dev --all" would drop --all.
 	// Parsing repeatedly, peeling one positional off each round, honours flags
 	// wherever the user typed them.
 	var positional []string
@@ -83,25 +76,11 @@ func run(args []string, o options) int {
 	if o.portFree == nil {
 		o.portFree = plan.LocalPortFree
 	}
-	if o.configPath == "" {
-		o.configPath = *configPath
-	}
-	if o.configPath == "" {
-		o.configPath = tunnel9.DefaultPath()
-	}
 
-	if command == "watch" {
-		for {
-			if code := once(o, host, command, *all, *prune, *tag); code != 0 {
-				return code
-			}
-			time.Sleep(*every)
-		}
-	}
-	return once(o, host, command, *all, *prune, *tag)
+	return list(o, host, *all)
 }
 
-func once(o options, host, command string, all, prune bool, tag string) int {
+func list(o options, host string, all bool) int {
 	ports, err := discover.Discover(context.Background(), o.runner, host, all)
 	if err != nil {
 		fmt.Fprintln(o.stderr, err)
@@ -111,61 +90,14 @@ func once(o options, host, command string, all, prune bool, tag string) int {
 		fmt.Fprintf(o.stdout, "nenhuma porta em LISTEN encontrada em %s\n", host)
 		return 0
 	}
-
-	if command == "list" {
-		names := plan.Aliases(ports)
-		for _, p := range ports {
-			fmt.Fprintf(o.stdout, "  %-6d %s\n", p.Port, names[p.Port])
-		}
-		return 0
+	names := plan.Aliases(ports)
+	for _, p := range ports {
+		fmt.Fprintf(o.stdout, "  %-6d %s\n", p.Port, names[p.Port])
 	}
-
-	cfg, err := tunnel9.Load(o.configPath)
-	if err != nil {
-		fmt.Fprintf(o.stderr, "%v\naponte outro arquivo com --config\n", err)
-		return 1
-	}
-	assignments := plan.Build(ports, cfg.TakenLocalPorts(), o.portFree)
-	changes := cfg.Merge(host, assignments, tag, prune)
-	// Report the remap from the entry the merge actually wrote: on a rescan the
-	// planner reassigns ports that the merge discards, and announcing those
-	// would be a lie.
-	for _, c := range changes {
-		if c.Kind == tunnel9.Added && c.Entry.LocalPort != c.Entry.RemotePort {
-			fmt.Fprintf(o.stdout, "  porta %d remapeada para %d (a local estava ocupada)\n",
-				c.Entry.RemotePort, c.Entry.LocalPort)
-		}
-	}
-	if len(changes) == 0 {
-		fmt.Fprintln(o.stdout, "nada mudou")
-		return 0
-	}
-	if err := cfg.Save(o.configPath); err != nil {
-		fmt.Fprintln(o.stderr, err)
-		return 1
-	}
-	for _, c := range changes {
-		fmt.Fprintf(o.stdout, "  %s %d -> %d  %s\n",
-			verb(c.Kind), c.Entry.RemotePort, c.Entry.LocalPort, c.Entry.Alias)
-	}
-	fmt.Fprintf(o.stdout, "%s atualizado\n", o.configPath)
 	return 0
 }
 
-func verb(k tunnel9.ChangeKind) string {
-	switch k {
-	case tunnel9.Added:
-		return "+"
-	case tunnel9.Pruned:
-		return "-"
-	default:
-		return "~"
-	}
-}
-
 const usage = `uso:
-  portscout list  <ssh-host>    descobre e imprime, sem escrever
-  portscout scan  <ssh-host>    descobre e atualiza o YAML do tunnel9
-  portscout watch <ssh-host>    scan em loop
+  portscout list <ssh-host>    descobre e imprime
 
-flags: --all --prune --tag=auto --config=CAMINHO --every=15s`
+flags: --all`
