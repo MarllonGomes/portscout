@@ -192,3 +192,13 @@ func TestHelpExitsZero(t *testing.T) {
 		t.Errorf("expected usage:\n%s", out.String())
 	}
 }
+
+// flag prints "Usage of up:" by default, which shows the user an internal verb
+// name they never typed.
+func TestHelpDoesNotLeakTheInternalCommandName(t *testing.T) {
+	var out bytes.Buffer
+	run([]string{"--help"}, options{stdout: &out, stderr: &out})
+	if strings.Contains(out.String(), "Usage of") {
+		t.Errorf("flag's own usage header leaked:\n%s", out.String())
+	}
+}

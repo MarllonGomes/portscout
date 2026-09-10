@@ -57,6 +57,9 @@ func run(args []string, o options) int {
 
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	fs.SetOutput(o.stderr)
+	// flag's own header is "Usage of up:", which leaks an internal verb name at
+	// the user. We print our own text instead.
+	fs.Usage = func() {}
 	all := fs.Bool("all", false, "não filtrar portas de sistema")
 	every := fs.Duration("every", 10*time.Second, "intervalo entre varreduras")
 	statePath := fs.String("state", "", "caminho do arquivo de escolhas")
