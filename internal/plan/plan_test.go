@@ -1,82 +1,66 @@
 package plan
 
-import (
-	"testing"
-
-	"github.com/MarllonGomes/portscout/internal/discover"
-)
+import "testing"
 
 func allFree(int) bool { return true }
 
-func TestBuildDefaultsLocalToRemote(t *testing.T) {
-	ports := []discover.Port{
-		{Port: 3100, Process: "next-server (v1"},
-		{Port: 3102, Process: "rootlesskit", Container: "postgres-1"},
+func TestAssignDefaultsLocalToRemote(t *testing.T) {
+	local, remapped := Assign(3100, map[int]bool{}, allFree)
+	if local != 3100 {
+		t.Errorf("local = %d, want 3100: the remote number is what the user means", local)
 	}
-	got := Build(ports, map[int]bool{}, allFree)
-
-	if len(got) != 2 {
-		t.Fatalf("got %d assignments, want 2", len(got))
-	}
-	if got[0].LocalPort != 3100 || got[0].Remapped {
-		t.Errorf("3100 should map to itself: %+v", got[0])
-	}
-	if got[0].Alias != "next-server (v1" {
-		t.Errorf("alias from process: %+v", got[0])
-	}
-	if got[1].Alias != "postgres-1" {
-		t.Errorf("alias must prefer the container name: %+v", got[1])
+	if remapped {
+		t.Error("nothing moved, so nothing should be flagged as remapped")
 	}
 }
 
-func TestBuildRemapsWhenLocalPortIsBusy(t *testing.T) {
-	ports := []discover.Port{{Port: 5432, Process: "rootlesskit", Container: "pg"}}
+func TestAssignRemapsWhenTheLocalPortIsBusy(t *testing.T) {
 	busy := func(p int) bool { return p != 5432 }
+	local, remapped := Assign(5432, map[int]bool{}, busy)
 
-	got := Build(ports, map[int]bool{}, busy)
-
-	if len(got) != 1 {
-		t.Fatalf("got %d assignments", len(got))
-	}
-	if got[0].LocalPort == 5432 {
+	if local == 5432 {
 		t.Fatal("must not assign a busy local port")
 	}
-	if !got[0].Remapped {
-		t.Error("a remap must be flagged so the caller can report it")
-	}
-	if got[0].RemotePort != 5432 {
-		t.Errorf("remote port must not change: %+v", got[0])
+	if !remapped {
+		t.Error("a remap must be flagged so the caller can say so out loud")
 	}
 }
 
-func TestBuildAvoidsPortsTakenByOtherEntries(t *testing.T) {
-	ports := []discover.Port{{Port: 3100, Process: "app"}}
-	got := Build(ports, map[int]bool{3100: true}, allFree)
-
-	if got[0].LocalPort == 3100 {
-		t.Fatal("3100 is already used by another entry in the file")
+func TestAssignAvoidsPortsTakenByOtherRows(t *testing.T) {
+	local, remapped := Assign(3100, map[int]bool{3100: true}, allFree)
+	if local == 3100 {
+		t.Fatal("3100 already belongs to another row")
 	}
-	if !got[0].Remapped {
-		t.Error("expected Remapped to be true")
+	if !remapped {
+		t.Error("expected remapped to be true")
 	}
 }
 
-func TestBuildDoesNotReuseAPortWithinOneRun(t *testing.T) {
-	ports := []discover.Port{{Port: 4000, Process: "a"}, {Port: 4001, Process: "b"}}
+// The caller accumulates `taken` as it assigns, which is what keeps two rows in
+// one scan off the same local port.
+func TestAssignDoesNotReuseAPortTheCallerAlreadyHandedOut(t *testing.T) {
 	busy := func(p int) bool { return p != 4001 }
-	got := Build(ports, map[int]bool{}, busy)
+	taken := map[int]bool{}
 
-	if got[0].LocalPort == got[1].LocalPort {
-		t.Fatalf("two assignments collided: %+v", got)
+	first, _ := Assign(4000, taken, busy)
+	taken[first] = true
+	second, _ := Assign(4001, taken, busy)
+
+	if first == second {
+		t.Fatalf("two rows collided on %d", first)
 	}
 }
 
-func TestBuildSkipsPortsWithoutLabel(t *testing.T) {
-	got := Build([]discover.Port{{Port: 9999}}, map[int]bool{}, allFree)
-	if len(got) != 1 {
-		t.Fatalf("an unlabelled port is still forwardable: %+v", got)
+func TestAssignStaysOutOfThePrivilegedRange(t *testing.T) {
+	local, _ := Assign(80, map[int]bool{80: true}, allFree)
+	if local != 0 && local < 1024 {
+		t.Errorf("local = %d: a port under 1024 needs root, so it is never handed out", local)
 	}
-	if got[0].Alias != "port 9999" {
-		t.Errorf("expected a fallback alias, got %q", got[0].Alias)
+}
+
+func TestAssignReportsZeroWhenNothingIsFree(t *testing.T) {
+	local, _ := Assign(65530, map[int]bool{}, func(int) bool { return false })
+	if local != 0 {
+		t.Errorf("local = %d, want 0 to mean no port was available", local)
 	}
 }

@@ -130,7 +130,7 @@ func Discover(ctx context.Context, r Runner, host string, includeAll bool) ([]Po
 
 	ports := make([]Port, 0, len(merged))
 	for _, p := range merged {
-		if !includeAll && p.isNoise() {
+		if !includeAll && p.IsNoise() {
 			continue
 		}
 		ports = append(ports, *p)
@@ -139,10 +139,14 @@ func Discover(ctx context.Context, r Runner, host string, includeAll bool) ([]Po
 	return ports, nil
 }
 
-// isNoise reports whether a port is infrastructure the user never wants to
+// IsNoise reports whether a port is infrastructure the user never wants to
 // forward. A port with a label is always kept: a dev server on a high port is
 // precisely what the user is looking for.
-func (p Port) isNoise() bool {
+//
+// Exported so the dashboard can filter at display time instead of at discovery
+// time: a row the user already chose must stay visible even when it looks like
+// noise, and toggling "show everything" must not need a fresh scan.
+func (p Port) IsNoise() bool {
 	if p.Container != "" {
 		return false
 	}

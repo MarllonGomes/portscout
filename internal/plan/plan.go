@@ -1,5 +1,5 @@
-// Package plan turns discovered remote ports into concrete local port
-// assignments, resolving collisions against the local machine.
+// Package plan turns discovered remote ports into local port assignments and
+// into the names shown for them.
 package plan
 
 import (
@@ -8,14 +8,6 @@ import (
 
 	"github.com/MarllonGomes/portscout/internal/discover"
 )
-
-// Assignment is one remote port paired with the local port to bind it to.
-type Assignment struct {
-	RemotePort int
-	LocalPort  int
-	Alias      string
-	Remapped   bool // true when LocalPort != RemotePort because of a conflict
-}
 
 // LocalPortFree reports whether a TCP port can be bound on this machine.
 func LocalPortFree(port int) bool {
@@ -27,40 +19,31 @@ func LocalPortFree(port int) bool {
 	return true
 }
 
-// Build assigns a local port to every discovered port. The default is the
-// remote port itself, which is what the user asked for; when that port is
-// already used — by another entry in the config, by another assignment in this
-// same run, or by something listening on this machine — the next free port is
-// chosen and the assignment is flagged so the caller can say so out loud.
-func Build(ports []discover.Port, taken map[int]bool, free func(int) bool) []Assignment {
-	used := map[int]bool{}
-	for p := range taken {
-		used[p] = true
+// Assign picks the local port for one newly discovered remote port. The default
+// is the remote number itself, which is what the user means; when that is spoken
+// for — by another row, or by something already listening here — it walks upward
+// and reports the remap so the caller can say so out loud. A zero result means
+// no port was available at all.
+//
+// This is deliberately per-port rather than per-scan. A row's local port is
+// decided once, when the row first appears, and then frozen: recomputing the
+// whole set on every rescan would see the ports portscout itself has bound as
+// busy and move running tunnels out from under the user.
+func Assign(want int, taken map[int]bool, free func(int) bool) (local int, remapped bool) {
+	if want >= 1024 && !taken[want] && free(want) {
+		return want, false
 	}
-
-	names := Aliases(ports)
-
-	out := make([]Assignment, 0, len(ports))
-	for _, p := range ports {
-		a := Assignment{RemotePort: p.Port, LocalPort: p.Port, Alias: names[p.Port]}
-		if used[p.Port] || !free(p.Port) {
-			a.LocalPort = nextFree(p.Port, used, free)
-			a.Remapped = true
-		}
-		used[a.LocalPort] = true
-		out = append(out, a)
-	}
-	return out
+	return nextFree(want, taken, free), true
 }
 
 // nextFree walks upward from the wanted port, staying in the unprivileged range
 // and giving up rather than looping forever.
-func nextFree(from int, used map[int]bool, free func(int) bool) int {
+func nextFree(from int, taken map[int]bool, free func(int) bool) int {
 	for p := from + 1; p < 65536; p++ {
 		if p < 1024 {
 			continue
 		}
-		if !used[p] && free(p) {
+		if !taken[p] && free(p) {
 			return p
 		}
 	}
@@ -68,12 +51,12 @@ func nextFree(from int, used map[int]bool, free func(int) bool) int {
 }
 
 // Aliases resolves the display name of every discovered port. It is the single
-// source of truth for naming: `list` has to print exactly what `scan` would
-// write, or the user picks a row in tunnel9 that they never saw in the listing.
+// source of truth for naming: `list` has to print exactly what the dashboard
+// shows, or the user picks a row they never saw in the listing.
 //
 // A container that publishes more than one port reports the same name for each,
-// which would put identical rows in the tunnel9 list. Only the names that
-// actually repeat get the port suffix, so the common case stays clean.
+// which would put identical rows in the list. Only the names that actually
+// repeat get the port suffix, so the common case stays clean.
 func Aliases(ports []discover.Port) map[int]string {
 	count := map[string]int{}
 	for _, p := range ports {
