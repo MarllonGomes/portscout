@@ -1,5 +1,9 @@
 # portscout — design
 
+> **Superado.** Este documento descreve o portscout como escritor do YAML do
+> tunnel9, o que ele deixou de ser. Vale como registro do que existia; o design
+> atual está em `2026-09-09-portscout-painel-design.md`.
+
 Data: 2026-09-09
 
 ## Problema
