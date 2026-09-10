@@ -49,6 +49,10 @@ type Host struct {
 }
 
 // Store reads and writes one host's file.
+//
+// A Store is owned by one goroutine. It caches the bytes of its last write to
+// skip redundant saves, so sharing one across goroutines races on that cache.
+// Open a second Store on the same path to read it from elsewhere.
 type Store struct {
 	path string
 	host string
