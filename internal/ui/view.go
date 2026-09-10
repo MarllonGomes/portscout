@@ -91,8 +91,10 @@ func (m Model) renderHeadings() string {
 	if f.tier >= tierWide {
 		b.WriteString(pad("ESTADO", stateW) + " ")
 	}
-	b.WriteString(padLeft("LOCAL", portW) + strings.Repeat(" ", pinW+arrowW))
-	b.WriteString(padLeft("REMOTA", portW) + " ")
+	b.WriteString(padLeft("LOCAL", portW) + strings.Repeat(" ", pinW+arrowW-1))
+	// "REMOTA" is six cells and the port column is five, so the heading borrows
+	// the last cell of the arrow gap instead of being truncated to "REMOT".
+	b.WriteString(padLeft("REMOTA", portW+1) + " ")
 	b.WriteString(pad("NOME", f.nameW))
 	if f.msgW > 0 {
 		b.WriteString(" " + pad("MENSAGEM", f.msgW))

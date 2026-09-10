@@ -731,3 +731,31 @@ func TestHelpOverlayClosesOnAnyKey(t *testing.T) {
 		t.Error("any key must close help")
 	}
 }
+
+// A one-off notice must be shown once. Keying off the text instead of the
+// sequence is how a transient line ends up pinned to the screen forever.
+func TestANoticeIsLatchedOnceAndThenExpires(t *testing.T) {
+	m, b, c := newTestModel(t, manyRows(2)...)
+
+	b.snap.Notice = "porta 3105 remapeada para 3107 (a local estava ocupada)"
+	b.snap.NoticeSeq = 1
+	m = send(m, snapshotMsg(b.snap))
+	if !strings.Contains(m.Render(), "remapeada") {
+		t.Fatal("a new notice must be shown")
+	}
+
+	// Later snapshots still carry the same text and sequence.
+	c.add(10 * time.Second)
+	m = send(m, tickMsg(c.now()), snapshotMsg(b.snap))
+	if strings.Contains(m.Render(), "remapeada") {
+		t.Errorf("the same notice was re-shown after expiring:\n%s", m.Render())
+	}
+
+	// A genuinely new notice does come back.
+	b.snap.Notice = "outra coisa aconteceu"
+	b.snap.NoticeSeq = 2
+	m = send(m, snapshotMsg(b.snap))
+	if !strings.Contains(m.Render(), "outra coisa") {
+		t.Error("a new sequence must show the new notice")
+	}
+}

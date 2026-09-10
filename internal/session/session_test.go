@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -469,3 +470,35 @@ func (r *switchableRunner) Run(context.Context, string, string) ([]byte, error) 
 }
 
 var _ discover.Runner = (*switchableRunner)(nil)
+
+// Every system port under 1024 is remapped by definition. Announcing those
+// buries the one remap the user actually needs to see, about a row they can see.
+func TestNoiseDoesNotRaiseARemapNotice(t *testing.T) {
+	h := newHarness(t, Config{
+		Runner: fakeRunner{out: remote(ssLine(53, "systemd-resolve"), ssLine(3100, "app"))},
+	})
+	h.fwd.linkUp()
+	h.waitSnap(t, "the app row", func(s Snapshot) bool { return len(s.Rows) == 1 })
+
+	if snap := h.s.Snapshot(); strings.Contains(snap.Notice, "53") {
+		t.Errorf("a hidden noise port must not produce a notice: %q", snap.Notice)
+	}
+}
+
+// A silent remap is worse than the collision, but six lines about it are worse
+// than one.
+func TestSeveralRemapsBecomeOneNotice(t *testing.T) {
+	h := newHarness(t, Config{
+		Runner:   fakeRunner{out: remote(ssLine(3100, "a"), ssLine(3101, "b"), ssLine(3102, "c"))},
+		PortFree: func(p int) bool { return p != 3100 && p != 3101 && p != 3102 },
+	})
+	h.fwd.linkUp()
+	snap := h.waitSnap(t, "the notice", func(s Snapshot) bool { return s.Notice != "" })
+
+	if !strings.Contains(snap.Notice, "3 portas remapeadas") {
+		t.Errorf("Notice = %q, want one summary line", snap.Notice)
+	}
+	if snap.NoticeSeq == 0 {
+		t.Error("a notice must carry a sequence so the UI can latch it once")
+	}
+}

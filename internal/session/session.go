@@ -50,7 +50,11 @@ type Snapshot struct {
 	Scanning bool
 	ScanErr  string
 	Notice   string
-	Rev      uint64
+	// NoticeSeq changes only when Notice is new. A consumer latches the text on
+	// a new sequence, which is what keeps a one-off message from being
+	// re-displayed forever by every later snapshot.
+	NoticeSeq uint64
+	Rev       uint64
 }
 
 // Forwarder is the slice of the supervisor a session needs; tests replace it.
@@ -91,17 +95,18 @@ type Session struct {
 	scans chan scanResult
 
 	// owned by Run
-	rows     map[int]*Row
-	link     tunnel.Link
-	linkErr  string
-	fatal    bool
-	scanning bool
-	lastScan time.Time
-	scanErr  string
-	notice   string
-	rev      uint64
-	dirty    bool
-	scanReq  chan struct{}
+	rows      map[int]*Row
+	link      tunnel.Link
+	linkErr   string
+	fatal     bool
+	scanning  bool
+	lastScan  time.Time
+	scanErr   string
+	notice    string
+	noticeSeq uint64
+	rev       uint64
+	dirty     bool
+	scanReq   chan struct{}
 }
 
 type scanResult struct {
@@ -162,7 +167,7 @@ func (s *Session) loadChoices() {
 	}
 	host, err := s.cfg.Store.Load()
 	if err != nil {
-		s.notice = err.Error()
+		s.setNotice(err.Error())
 	}
 	for _, c := range host.Choices {
 		s.rows[c.RemotePort] = &Row{
@@ -422,14 +427,18 @@ func (s *Session) applyScan(res scanResult) {
 	names := plan.Aliases(res.ports)
 	seen := map[int]bool{}
 	taken := s.takenLocalPorts()
+	var remaps [][2]int
 
 	for _, p := range res.ports {
 		seen[p.Port] = true
 		r, ok := s.rows[p.Port]
 		if !ok {
 			local, remapped := plan.Assign(p.Port, taken, s.cfg.PortFree)
-			if remapped && local != 0 {
-				s.notice = fmt.Sprintf("porta %d remapeada para %d (a local estava ocupada)", p.Port, local)
+			// Only a row the user can actually see is worth telling them about.
+			// Every system port under 1024 is "remapped" by definition, and
+			// announcing those buries the one remap that matters.
+			if remapped && local != 0 && !p.IsNoise() {
+				remaps = append(remaps, [2]int{p.Port, local})
 			}
 			taken[local] = true
 			r = &Row{RemotePort: p.Port, LocalPort: local}
@@ -450,7 +459,24 @@ func (s *Session) applyScan(res scanResult) {
 			r.Present = false
 		}
 	}
+	// One message for the whole scan: a silent remap is worse than the
+	// collision, but six separate lines about it are worse than one.
+	switch len(remaps) {
+	case 0:
+	case 1:
+		s.setNotice(fmt.Sprintf("porta %d remapeada para %d (a local estava ocupada)",
+			remaps[0][0], remaps[0][1]))
+	default:
+		s.setNotice(fmt.Sprintf("%d portas remapeadas (as locais estavam ocupadas)", len(remaps)))
+	}
 	s.publish()
+}
+
+// setNotice records a one-off message and bumps its sequence, so a consumer can
+// tell a new notice from the same one being carried along by later snapshots.
+func (s *Session) setNotice(text string) {
+	s.notice = text
+	s.noticeSeq++
 }
 
 func (s *Session) takenLocalPorts() map[int]bool {
@@ -492,16 +518,17 @@ func (s *Session) publish() {
 		out[i] = *r
 	}
 	s.snap.Store(&Snapshot{
-		Host:     s.cfg.Host,
-		Link:     s.link,
-		LinkErr:  s.linkErr,
-		Fatal:    s.fatal,
-		Rows:     out,
-		LastScan: s.lastScan,
-		Scanning: s.scanning,
-		ScanErr:  s.scanErr,
-		Notice:   s.notice,
-		Rev:      s.rev,
+		Host:      s.cfg.Host,
+		Link:      s.link,
+		LinkErr:   s.linkErr,
+		Fatal:     s.fatal,
+		Rows:      out,
+		LastScan:  s.lastScan,
+		Scanning:  s.scanning,
+		ScanErr:   s.scanErr,
+		Notice:    s.notice,
+		NoticeSeq: s.noticeSeq,
+		Rev:       s.rev,
 	})
 	select {
 	case s.changed <- struct{}{}:
@@ -527,7 +554,7 @@ func (s *Session) saveNow() {
 		})
 	}
 	if err := s.cfg.Store.Save(state.Host{Host: s.cfg.Host, Choices: choices}); err != nil {
-		s.notice = fmt.Sprintf("não consegui gravar %s: %v", s.cfg.Store.Path(), err)
+		s.setNotice(fmt.Sprintf("não consegui gravar %s: %v", s.cfg.Store.Path(), err))
 		s.publish()
 	}
 }

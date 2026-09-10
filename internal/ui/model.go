@@ -84,9 +84,10 @@ type Model struct {
 	now     func() time.Time
 	styles  Styles
 
-	snap   session.Snapshot
-	cursor int // index into snap.Rows
-	top    int // first visible row
+	snap       session.Snapshot
+	noticeSeen uint64 // the last notice sequence latched into the status line
+	cursor     int    // index into snap.Rows
+	top        int    // first visible row
 
 	width, height int
 	frame         frame
@@ -210,8 +211,14 @@ func (m Model) applySnapshot(snap session.Snapshot) Model {
 			}
 		}
 	}
-	if snap.Notice != "" && m.status.text == "" {
-		m.status = status{text: snap.Notice, kind: statusInfo, expires: m.now().Add(4 * time.Second)}
+	// Latch a notice once, by sequence. Keying off the text would re-show the
+	// same message on every later snapshot, which is how a transient line ends
+	// up pinned to the screen forever.
+	if snap.NoticeSeq != m.noticeSeen {
+		m.noticeSeen = snap.NoticeSeq
+		if snap.Notice != "" {
+			m.status = status{text: snap.Notice, kind: statusInfo, expires: m.now().Add(6 * time.Second)}
+		}
 	}
 	m.reframe()
 	return m
