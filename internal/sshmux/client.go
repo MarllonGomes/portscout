@@ -142,11 +142,14 @@ func (c *OpenSSH) waitReady(ctx context.Context, exited <-chan error, ring *ring
 	}
 }
 
-// clearStaleMaster deals with the socket a killed run left behind.
+// clearStaleMaster deals with the master a killed run left behind.
 //
-// A live master from a previous process cannot be adopted: there is no mux
-// command that enumerates its existing forwards, so our first -O forward would
-// come back as a bind error we would have to lie about. Kill it and start clean.
+// This is load-bearing, not defensive: a SIGKILLed portscout really does leave
+// its master and every forward running, so this is what eventually closes them.
+//
+// A live master cannot be adopted: there is no mux command that enumerates its
+// existing forwards, so our first -O forward would come back as a bind error we
+// would have to lie about. Kill it and start clean.
 func (c *OpenSSH) clearStaleMaster(ctx context.Context) error {
 	if err := c.Check(ctx); err == nil {
 		_ = c.control(ctx, "exit", nil)
@@ -177,8 +180,12 @@ func (c *OpenSSH) control(ctx context.Context, op string, f *Forward) error {
 	return nil
 }
 
-// Stop takes the master down in three escalating steps. ControlPersist=no means
-// even the bluntest of them takes every forward with it.
+// Stop takes the master down in three escalating steps: ask it to leave, signal
+// its process group, then insist.
+//
+// This is the only thing that ends a master. Nothing in ssh ties its life to
+// ours, so every ordinary exit has to come through here — which is why the
+// caller wires q, ctrl+c, SIGTERM and SIGHUP to the same shutdown path.
 func (c *OpenSSH) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	cmd := c.master

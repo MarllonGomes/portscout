@@ -130,6 +130,12 @@ inteiro — `ProxyCommand`, `IdentitiesOnly`, chaves FIDO, `Match`, tudo.
 | Conexão caiu | as linhas voltam para "conectando" e sobem de novo sozinhas |
 | Chave recusada | erro fatal, sem martelar o sshd — rode `ssh <host>` uma vez |
 
+Uma ressalva honesta sobre o `kill -9`: sair pelo `q`, por `ctrl+c`, por
+`SIGTERM`/`SIGHUP` ou fechando o terminal derruba os túneis. Um `kill -9` não —
+nada no ssh amarra a vida do master à do portscout, então ele e os
+encaminhamentos ficam de pé até a próxima abertura, que os encontra pelo socket
+determinístico e os encerra.
+
 ## Instalação
 
 ```sh

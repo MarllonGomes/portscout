@@ -59,9 +59,14 @@ func (f Forward) Spec() string {
 func masterArgs(host, socket string) []string {
 	return []string{
 		"-M", "-N", "-S", socket,
-		// The dashboard owns the tunnels for exactly as long as it runs, and
-		// this is what enforces it: the master cannot outlive us, even if we are
-		// killed before any cleanup can run.
+		// Keeps the master in the foreground rather than backgrounded, so its
+		// exit is something we can observe with cmd.Wait.
+		//
+		// It does NOT tie the master's life to ours. ssh_config(5): the master
+		// "will close as soon as the initial client connection is closed" — and
+		// with -N the master *is* that client, so nothing closes it when we die.
+		// A SIGKILLed portscout therefore leaves the master and its forwards
+		// running until the next launch reclaims them; see clearStaleMaster.
 		"-o", "ControlPersist=no",
 		"-o", "BatchMode=yes",
 		// A wedged link makes ssh exit on its own within ~45s, which is how the

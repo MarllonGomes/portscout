@@ -62,8 +62,11 @@ Três regras tornam isso seguro em vez de esperto:
 
 - `-M -S <nosso socket>` sempre explícitos, sobrepondo o `ControlMaster` do
   usuário. Não sequestramos a conexão dele nem somos quebrados por ela.
-- `ControlPersist=no` faz "os túneis morrem com o painel" ser verdade por
-  construção, e não por um `defer` que talvez não rode.
+- `ControlPersist=no` mantém o master em primeiro plano, para a saída dele ser
+  observável. Ele **não** amarra a vida do master à nossa: o `ssh_config(5)` diz
+  que o master fecha quando a conexão do cliente inicial fecha, e com `-N` o
+  master *é* esse cliente. Medido: um `kill -9` no portscout deixa o master e os
+  seis encaminhamentos de pé.
 - Um master sobrevivente de execução morta **não é adotado**. Não existe comando
   de mux que enumere forwards existentes, então o primeiro `-O forward` viraria
   um erro de bind sobre o qual teríamos de mentir. Mata e recomeça.
@@ -176,13 +179,22 @@ TTY, e é onde moram as invariantes que importam.
 | Link caiu | linhas desejadas voltam a "conectando", backoff de 1s a 30s, replay ao voltar |
 | Chave recusada / host key | fatal, sem retry |
 | Arquivo de estado ilegível | começa vazio com aviso não fatal |
-| `SIGKILL` no portscout | o master morre junto; a abertura seguinte limpa o socket órfão |
+| `SIGKILL` no portscout | o master **sobrevive** com os túneis; a abertura seguinte o encontra e encerra |
 
 Duas dessas merecem o porquê:
 
 **"Varredura falhou: nada muda"** é a regra mais importante do programa. Uma
 chamada SSH instável não pode custar as escolhas do usuário. Ela tem teste com
 nome próprio.
+
+**O `kill -9` é a exceção assumida.** Toda saída ordinária — `q`, `ctrl+c`,
+`SIGTERM`, `SIGHUP`, fechar o terminal — passa pelo mesmo caminho de desligamento
+e derruba os túneis. Um `kill -9` não passa por lugar nenhum, e não existe
+mecanismo no ssh para cobrir isso: testei amarrar o master a um comando remoto
+que lê o nosso stdin, e ele não morre no EOF. `Pdeathsig` cobriria, mas é só
+Linux e dispara quando a *thread* que forkou termina, o que o runtime do Go faz
+quando quer. O socket determinístico mais o `-O exit` na abertura seguinte são a
+garantia real, e essa foi verificada.
 
 **Bind ocupado não retenta.** Uma porta ocupada não se libera sozinha, e
 retentar a cada segundo produz um fluxo de erros idênticos que enterra a única
